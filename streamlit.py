@@ -30,7 +30,23 @@ def time_to_int(time):
 
 # Get coordinates
 def get_lon_lat(airport):
-  return (51,21)
+    api_key = "aVtTMNV9FNjTjPDXnGowqNqFwlNfM2mWF8VQHWB8"
+
+    url = f"https://api.api-ninjas.com/v1/airports?iata={airport}"
+    headers = {'X-Api-Key': api_key}
+
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    data = response.json()
+
+    if not data:
+        return None  # Important fix
+
+    airport_info = data[0]
+    latitude = airport_info.get('latitude')
+    longitude = airport_info.get('longitude')
+
+    return (latitude, longitude)
 
 # Calculate distance
 def distance(dep_airport, dest_airport):
