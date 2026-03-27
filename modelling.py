@@ -23,6 +23,8 @@ else:
 
     df = dd.read_parquet(s3_urls, storage_options={'anon': True})
 
+    print("Loaded Data....")
+
     df["fl_date"] = dd.to_datetime(df["fl_date"], format='%m/%d/%Y %I:%M:%S %p')
     df["month"] = df["fl_date"].dt.month
     df = df[df["cancelled"] != "1.00"]
@@ -49,6 +51,8 @@ else:
                  "fl_date_key", "dep_hour_key", "arr_hour_key"]
     df = df.drop(columns=drop_cols).dropna()
 
+    print("Cleaned Dataframe...")
+
     # Split features and target
     y = df["arr_delay"]
     X = df.drop(columns="arr_delay")
@@ -59,6 +63,8 @@ else:
     # Train XGBoost
     xg_model = XGBRegressor(enable_categorical=True)
     xg_model.fit(X_train, y_train)
+
+    print("Model Trained Successfully!...")
 
     # Evaluate
     y_pred = xg_model.predict(X_test)
