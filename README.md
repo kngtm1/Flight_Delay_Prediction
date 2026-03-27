@@ -1,5 +1,5 @@
 # Flight_Delay_Prediction
-We deployed our app on a Docker Container sitting in an EC2 Instance. 
+We deployed our app on a Docker Container sitting in an EC2 Instance. Our app is also accessible through https://brickle-patrina-unwarily.ngrok-free.dev/
 
 # Set up EC2 Instance
 - Use a large size instance with at least 8GB of memory, using the Ubunutu AMI
