@@ -1,19 +1,15 @@
 import os
-import pickle
-import gc
 import datetime
 import dask.dataframe as dd
-import pandas as pd
-import numpy as np
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error
 from xgboost import XGBRegressor
 
-MODEL_FILE = "model.pkl"
+MODEL_FILE = "model.json"
 
+# Check if model already exists
 if os.path.exists(MODEL_FILE):
-    print("Model already trained. Loading model.pkl...")
-    with open(MODEL_FILE, "rb") as f:
-        xg_model = pickle.load(f)
+    print("Model already trained. Skipping training.")
 else:
     print("Training model...")
 
@@ -23,89 +19,73 @@ else:
     s3_urls = [f"{base_s3_uri}{r}-uncompressed.parquet" for r in runs]
 
     df = dd.read_parquet(s3_urls, storage_options={'anon': True})
-    print("Loaded Data....")
 
-    # --- Preprocessing (stays lazy in Dask) ---
+    # Create month from date (produces int32 — keep as-is, do not cast to string)
     df["fl_date"] = dd.to_datetime(df["fl_date"], format='%m/%d/%Y %I:%M:%S %p')
     df["month"] = df["fl_date"].dt.month
+
+    # Filter out cancelled flights and missing arrival delays
     df = df[df["cancelled"] != "1.00"]
     df = df[df["arr_delay"] != ""]
 
-    numeric_cols = ['crs_dep_time', 'crs_arr_time', 'arr_delay',
-                    'distance', 'origin_temp', 'origin_precip', 'origin_rain', 'origin_snow',
-                    'origin_wind', 'origin_wind_gusts', 'dest_temp', 'dest_precip', 'dest_rain',
-                    'dest_snow', 'dest_wind', 'dest_wind_gusts']
+    # Convert numeric columns
+    numeric_cols = [
+        'crs_dep_time', 'dep_time', 'dep_delay', 'crs_arr_time', 'arr_time', 'arr_delay',
+        'air_time', 'distance', 'origin_temp', 'origin_precip', 'origin_rain', 'origin_snow',
+        'origin_wind', 'origin_wind_gusts', 'dest_temp', 'dest_precip', 'dest_rain',
+        'dest_snow', 'dest_wind', 'dest_wind_gusts'
+    ]
     for col in numeric_cols:
         df[col] = dd.to_numeric(df[col], errors='coerce')
 
-    cat_cols = ["day_of_week", 'op_carrier', 'origin', 'dest',
-                'origin_weather_code', 'dest_weather_code', 'month']
+    # Convert categorical columns
+    # Note: day_of_week, op_carrier, origin, dest, origin_weather_code, dest_weather_code
+    #       are string categories (from raw parquet strings)
+    #       month is int32 category (from .dt.month)
+    cat_cols = ["day_of_week", 'op_carrier', 'origin', 'dest', 'origin_weather_code',
+                'dest_weather_code', 'month']
     df[cat_cols] = df[cat_cols].astype("category")
 
-    drop_cols = ["fl_date", "op_unique_carrier", "op_carrier_airline_id", "tail_num",
-                 "op_carrier_fl_num", "origin_airport_id", "origin_airport_seq_id",
-                 "origin_city_market_id", "origin_city_name", "origin_state_abr",
-                 "dest_airport_id", "dest_airport_seq_id", "dest_city_market_id",
-                 "dest_city_name", "dest_state_abr", "dep_time", "dep_delay", "arr_time",
-                 "cancelled", "cancellation_code", "diverted", "air_time", "carrier_delay",
-                 "weather_delay", "nas_delay", "security_delay", "late_aircraft_delay",
-                 "fl_date_key", "dep_hour_key", "arr_hour_key"]
+    # Drop unused columns
+    drop_cols = [
+        "fl_date", "op_unique_carrier", "op_carrier_airline_id", "tail_num",
+        "op_carrier_fl_num", "origin_airport_id", "origin_airport_seq_id",
+        "origin_city_market_id", "origin_city_name", "origin_state_abr",
+        "dest_airport_id", "dest_airport_seq_id", "dest_city_market_id",
+        "dest_city_name", "dest_state_abr", "dep_time", "dep_delay", "arr_time",
+        "cancelled", "cancellation_code", "diverted", "air_time", "carrier_delay",
+        "weather_delay", "nas_delay", "security_delay", "late_aircraft_delay",
+        "fl_date_key", "dep_hour_key", "arr_hour_key"
+    ]
     df = df.drop(columns=drop_cols).dropna()
-    print("Cleaned Dataframe...")
 
-    # --- Train/test split by partition (never loads all data at once) ---
-    partitions = df.npartitions
-    test_cutoff = int(partitions * 0.8)  # 80% train, 20% test
+    # Split features and target
+    y = df["arr_delay"]
+    X = df.drop(columns="arr_delay")
 
-    train_ddf = df.get_partition(slice(0, test_cutoff))
-    test_ddf  = df.get_partition(slice(test_cutoff, partitions))
-
-    # --- XGBoost incremental training via batches ---
-    xg_model = XGBRegressor(
-        enable_categorical=True,
-        tree_method="hist",       # much more memory efficient
-        device="cuda",            # remove this line if not using GPU
-        n_estimators=100,
+    # Compute Dask dataframe to Pandas
+    print("Computing Dask dataframe (this may take a while)...")
+    X_train, X_test, y_train, y_test = train_test_split(
+        X.compute(), y.compute(), test_size=0.2, random_state=42
     )
 
-    print("Training in batches...")
-    fitted = False
-    for i in range(train_ddf.npartitions):
-        partition = train_ddf.get_partition(i).compute()
-        X_batch = partition.drop(columns="arr_delay")
-        y_batch = partition["arr_delay"]
-
-        if not fitted:
-            xg_model.fit(X_batch, y_batch)
-            fitted = True
+    # Print dtypes for verification before training
+    print("\nFeature dtypes going into model:")
+    for col in X_train.columns:
+        if hasattr(X_train[col], 'cat'):
+            print(f"  {col}: {X_train[col].dtype} (categories dtype: {X_train[col].cat.categories.dtype})")
         else:
-            # Incrementally update the model with each new batch
-            xg_model.fit(X_batch, y_batch, xgb_model=xg_model)
+            print(f"  {col}: {X_train[col].dtype}")
 
-        del partition, X_batch, y_batch
-        gc.collect()  # free memory after each batch
-        print(f"  Trained on partition {i+1}/{train_ddf.npartitions}")
+    # Train XGBoost
+    xg_model = XGBRegressor(enable_categorical=True)
+    xg_model.fit(X_train, y_train)
 
-    # --- Evaluate in batches too ---
-    print("Evaluating...")
-    all_preds, all_actuals = [], []
-    for i in range(test_ddf.npartitions):
-        partition = test_ddf.get_partition(i).compute()
-        X_batch = partition.drop(columns="arr_delay")
-        y_batch = partition["arr_delay"]
-        all_preds.append(xg_model.predict(X_batch))
-        all_actuals.append(y_batch.values)
-        del partition, X_batch, y_batch
-        gc.collect()
+    # Evaluate
+    y_pred = xg_model.predict(X_test)
+    mae = mean_absolute_error(y_test, y_pred)
+    print(f"\nTraining done. MAE on test set: {mae:.2f} minutes")
 
-    mae = mean_absolute_error(np.concatenate(all_actuals), np.concatenate(all_preds))
-    print(f"Training done. MAE on test set: {mae}")
-
-    # --- Save model ---
-    with open(MODEL_FILE, "wb") as f:
-        pickle.dump(xg_model, f)
-    print("Model saved to model.pkl")
-
-
-def prediction(data):
-    return xg_model.predict(data)
+    # Save as JSON (not pickle) so it can be loaded with xgboost.Booster()
+    xg_model.save_model(MODEL_FILE)
+    print(f"Model saved to {MODEL_FILE}")
