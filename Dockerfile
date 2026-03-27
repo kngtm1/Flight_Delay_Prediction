@@ -1,19 +1,23 @@
 FROM python:3.10
 
-# Set working directory
-WORKDIR /app
+# System dependencies needed for some Python packages
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    liblzma-dev \
+    libsnappy-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy project files
+WORKDIR /app
 COPY . .
 
-# Install dependencies
+# Upgrade pip first
+RUN pip install --upgrade pip
+
+# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Expose Streamlit port
 EXPOSE 8501
-
-# Avoid Python buffering issues
 ENV PYTHONUNBUFFERED=1
 
-# Run wrapper script
 CMD ["./start.sh"]
