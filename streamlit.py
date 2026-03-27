@@ -1,4 +1,3 @@
-%%writefile app.py
 import datetime
 import streamlit as st
 from geopy.distance import geodesic
@@ -8,7 +7,7 @@ import pandas as pd
 import numpy as np
 import requests_cache
 from retry_requests import retry
-import pickle
+import xgboost
 
 # ================================== LOGIC =====================================
 
@@ -17,7 +16,8 @@ def prediction(data):
 
 # Calculate Day of the Week
 def day_of_week(date):
-  return date.weekday()+1
+    return date.weekday()+1
+  # return date.weekday()+1
 
 # Calculate Month
 def month(date):
@@ -97,6 +97,51 @@ def get_weather(lat, lon, dep_date, dep_time):
   "wind_gusts": np.round(closest["wind_gusts_10m"].values[0], 1),
   "weather_code": closest["weather_code"].values[0]
   }
+
+FEATURE_NAMES = ['day_of_week', 'op_carrier', 'origin', 'dest', 'crs_dep_time', 'crs_arr_time', 
+                 'distance', 'origin_temp', 'origin_precip', 'origin_rain', 'origin_snow', 
+                 'origin_weather_code', 'origin_wind', 'origin_wind_gusts', 'dest_temp', 
+                 'dest_precip', 'dest_rain', 'dest_snow', 'dest_weather_code', 'dest_wind', 
+                 'dest_wind_gusts', 'month']
+
+# Integer categoricals (came from numeric columns in training)
+INT_CATEGORICALS = ["month", "day_of_week", "origin_weather_code", "dest_weather_code"]
+
+# String categoricals (came from string columns in training)
+STR_CATEGORICALS = ["op_carrier", "origin", "dest"]
+
+CATEGORICAL_COLS = INT_CATEGORICALS + STR_CATEGORICALS
+
+def preprocess_input(data_dict):
+    df = pd.DataFrame([data_dict])
+
+    for col in CATEGORICAL_COLS:
+        if col in df.columns:
+            if col == "month":
+                # int32 categories — matches .dt.month from training
+                df[col] = pd.Categorical(
+                    np.array([df[col].iloc[0]], dtype=np.int32),
+                    categories=np.arange(1, 13, dtype=np.int32)
+                )
+            elif col in ["origin_weather_code", "dest_weather_code"]:
+                # string categories, but value comes in as float32 from weather API
+                # must convert to int first to strip decimal, then string
+                df[col] = pd.Categorical(
+                    [str(int(float(df[col].iloc[0])))],
+                )
+            else:
+                # all others: plain string categories
+                df[col] = df[col].astype(str).astype("category")
+
+    for col in df.columns:
+        if col not in CATEGORICAL_COLS:
+            df[col] = pd.to_numeric(df[col])
+
+    df = df[FEATURE_NAMES]
+    return df
+
+model = xgboost.Booster()
+model.load_model("model.json")
 
 # ================================== FRONT END INPUT ===================================
 
@@ -235,7 +280,6 @@ if st.button("Get Estimated Time"):
       "dest": dest_airport,
       "crs_dep_time": time_to_int(dep_time),
       "crs_arr_time": time_to_int(dest_time),
-      "arr_delay": "TARGET",
       "distance": airports_distance,
       "origin_temp": dep_temp,
       "origin_precip": dep_precipitation,
@@ -253,14 +297,11 @@ if st.button("Get Estimated Time"):
       "dest_wind_gusts": dest_wind_gusts,
       "month": month(dep_date)
   }
+  
+  input_df = preprocess_input(data)
 
-  input_df = pd.DataFrame(list(data.items()), columns=["Feature", "Value"])
-
-  # Get the model
-  with open("model.pkl", "rb") as f:
-    model = pickle.load(f)
-
-  predicted_delay = model.predict(input_df)
+  dmat = xgboost.DMatrix(input_df, enable_categorical=True)
+  predicted_delay = model.predict(dmat)
 
   st.markdown("---")
 
@@ -272,7 +313,7 @@ if st.button("Get Estimated Time"):
     st.header("")
 
   with blank_col2:
-    st.metric("Time Delay:", f"{predicted_delay:.0f} minutes")
+    st.metric("Time Delay:", f"{predicted_delay[0]:.0f} minutes")
 
   with blank_col3:
     st.header("")
