@@ -1,24 +1,21 @@
-FROM python:3.10-slim
+FROM python:3.12-slim
 
-# System dependencies
 RUN apt-get update && apt-get install -y \
-    libsnappy-dev \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
+RUN mkdir -p /data/docker/tmp
 ENV TMPDIR=/data/docker/tmp
+ENV PYTHONUNBUFFERED=1
 
 COPY requirements.txt .
-
-# Upgrade pip and install dependencies (CPU only, prefer binary wheels)
 RUN pip install --upgrade pip && \
     pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 COPY . .
 
 EXPOSE 8501
-ENV PYTHONUNBUFFERED=1
 
-RUN chmod +x start.sh
-CMD ["./start.sh"]
+CMD ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
