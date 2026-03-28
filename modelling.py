@@ -14,8 +14,8 @@ else:
     print("Training model...")
 
     # ----------- Load and preprocess data -----------
-    base_s3_uri = "s3://608-cmb-pub/Combined_Data/run-1774211589769-part-block-0-r-"
-    runs = [f"{i:05d}" for i in range(117)]
+    base_s3_uri = "s3://data604-g4-final/Combined_Data/run-1774669705550-part-block-0-r-"
+    runs = [f"{i:05d}" for i in range(123)]
     s3_urls = [f"{base_s3_uri}{r}-uncompressed.parquet" for r in runs]
 
     df = dd.read_parquet(s3_urls, storage_options={'anon': True})
@@ -29,12 +29,7 @@ else:
     df = df[df["arr_delay"] != ""]
 
     # Convert numeric columns
-    numeric_cols = [
-        'crs_dep_time', 'dep_time', 'dep_delay', 'crs_arr_time', 'arr_time', 'arr_delay',
-        'air_time', 'distance', 'origin_temp', 'origin_precip', 'origin_rain', 'origin_snow',
-        'origin_wind', 'origin_wind_gusts', 'dest_temp', 'dest_precip', 'dest_rain',
-        'dest_snow', 'dest_wind', 'dest_wind_gusts'
-    ]
+    numeric_cols = ['crs_dep_time','dep_time', 'dep_delay', 'crs_arr_time', 'arr_time', 'arr_delay', 'air_time', 'distance', 'origin_temperature_2m', 'origin_precipitation', 'origin_rain', 'origin_snowfall', 'origin_wind_speed_10m', 'origin_wind_gusts_10m', 'dest_temperature_2m', 'dest_precipitation', 'dest_rain', 'dest_snowfall', 'dest_wind_speed_10m', 'dest_wind_gusts_10m']
     for col in numeric_cols:
         df[col] = dd.to_numeric(df[col], errors='coerce')
 
