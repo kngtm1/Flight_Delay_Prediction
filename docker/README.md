@@ -1,5 +1,7 @@
 # Flight_Delay_Prediction
-We deployed our app on a Docker Container sitting in an EC2 Instance. Our app is also accessible through https://brickle-patrina-unwarily.ngrok-free.dev/
+The flight delay prediction app can be accessed in 2 ways:
+- Locally through a docker container (/docker)
+- Through Colab Notebook (/colab)
 
 # Set up EC2 Instance
 - Use a large size instance with at least 8GB of memory, using the Ubunutu AMI
