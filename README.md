@@ -3,7 +3,9 @@ The flight delay prediction app can be accessed in 2 ways:
 
 - Locally through a docker container (/docker)
 - Through Colab Notebook (/colab)
-  
+
+A model.json file has been provided as a convenient measure of loading the pre-trained model into the streamlit file.
+
 ## Set up EC2 Instance
 - Use a large size instance with at least 8GB of memory, using the Ubunutu AMI
 - For the security group, add 8501 to the inbound rules
