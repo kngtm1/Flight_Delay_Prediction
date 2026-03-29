@@ -24,3 +24,6 @@ A model.json file has been provided as a convenient measure of loading the pre-t
 - cd Flight_Delay_Prediction/docker
 - docker build -t flight-delay .
 - docker run -p 8501:8501 flight-delay
+
+## OPTIONAL: Run the training file
+- docker run flight-delay python modelling.py
