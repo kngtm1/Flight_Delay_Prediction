@@ -21,6 +21,6 @@ A model.json file has been provided as a convenient measure of loading the pre-t
 
 ## Clone and build
 - git clone https://github.com/kngtm1/Flight_Delay_Prediction.git
-- cd Flight_Delay_Prediction
+- cd Flight_Delay_Prediction/docker
 - docker build -t flight-delay .
 - docker run -p 8501:8501 flight-delay
