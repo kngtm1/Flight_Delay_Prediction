@@ -1,4 +1,3 @@
-%%writefile streamlit.py
 import datetime
 import streamlit as st
 from geopy.distance import geodesic
