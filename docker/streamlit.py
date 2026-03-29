@@ -1,3 +1,4 @@
+%%writefile streamlit.py
 import datetime
 import streamlit as st
 from geopy.distance import geodesic
@@ -10,9 +11,6 @@ from retry_requests import retry
 import xgboost
 
 # ================================== LOGIC =====================================
-
-def prediction(data):
-  return 0.6
 
 # Calculate Day of the Week
 def day_of_week(date):
@@ -29,24 +27,20 @@ def time_to_int(time):
   return time_int
 
 # Get coordinates
+AIRPORT_COORDS = pd.read_csv(
+    "https://data604-g4-final.s3.us-east-1.amazonaws.com/Aiport_Coordinates/2a905675-33b7-48c9-9c3e-9decf6a88f21.csv"
+)
+
 def get_lon_lat(airport):
-    api_key = "aVtTMNV9FNjTjPDXnGowqNqFwlNfM2mWF8VQHWB8"
+    row = AIRPORT_COORDS[AIRPORT_COORDS["airport"] == airport]
 
-    url = f"https://api.api-ninjas.com/v1/airports?iata={airport}"
-    headers = {'X-Api-Key': api_key}
+    if row.empty:
+        return None
 
-    response = requests.get(url, headers=headers)
-    response.raise_for_status()
-    data = response.json()
+    lat = float(row["latitude"].values[0])
+    lon = float(row["longitude"].values[0])
 
-    if not data:
-        return None  # Important fix
-
-    airport_info = data[0]
-    latitude = airport_info.get('latitude')
-    longitude = airport_info.get('longitude')
-
-    return (latitude, longitude)
+    return (lat, lon)
 
 # Calculate distance
 def distance(dep_airport, dest_airport):
@@ -71,7 +65,7 @@ def get_weather(lat, lon, dep_date, dep_time):
   params = {
     "latitude": lat,
     "longitude": lon,
-    "hourly": ["temperature_2m", "precipitation", "rain", "snowfall", "weather_code", "wind_speed_180m", "wind_gusts_10m"],
+    "hourly": ["temperature_2m", "precipitation", "rain", "snowfall", "weather_code", "wind_speed_10m", "wind_gusts_10m"],
   }
   response = openmeteo.weather_api(url, params = params)[0]
 
@@ -82,7 +76,7 @@ def get_weather(lat, lon, dep_date, dep_time):
   hourly_rain = hourly.Variables(2).ValuesAsNumpy()
   hourly_snowfall = hourly.Variables(3).ValuesAsNumpy()
   hourly_weather_code = hourly.Variables(4).ValuesAsNumpy()
-  hourly_wind_speed_180m = hourly.Variables(5).ValuesAsNumpy()
+  hourly_wind_speed_10m = hourly.Variables(5).ValuesAsNumpy()
   hourly_wind_gusts_10m = hourly.Variables(6).ValuesAsNumpy()
 
   hourly_data = {"date": pd.date_range(
@@ -97,7 +91,7 @@ def get_weather(lat, lon, dep_date, dep_time):
   hourly_data["rain"] = hourly_rain
   hourly_data["snowfall"] = hourly_snowfall
   hourly_data["weather_code"] = hourly_weather_code
-  hourly_data["wind_speed_180m"] = hourly_wind_speed_180m
+  hourly_data["wind_speed_10m"] = hourly_wind_speed_10m
   hourly_data["wind_gusts_10m"] = hourly_wind_gusts_10m
 
   hourly_dataframe = pd.DataFrame(data = hourly_data)
@@ -109,16 +103,16 @@ def get_weather(lat, lon, dep_date, dep_time):
   "precipitation": np.round(closest["precipitation"].values[0], 1),
   "rain": np.round(closest["rain"].values[0], 1),
   "snow": np.round(closest["snowfall"].values[0], 1),
-  "wind_speed": np.round(closest["wind_speed_180m"].values[0], 1),
+  "wind_speed": np.round(closest["wind_speed_10m"].values[0], 1),
   "wind_gusts": np.round(closest["wind_gusts_10m"].values[0], 1),
   "weather_code": closest["weather_code"].values[0]
   }
 
-FEATURE_NAMES = ['day_of_week', 'op_carrier', 'origin', 'dest', 'crs_dep_time', 'crs_arr_time', 
-                 'distance', 'origin_temp', 'origin_precip', 'origin_rain', 'origin_snow', 
-                 'origin_weather_code', 'origin_wind', 'origin_wind_gusts', 'dest_temp', 
-                 'dest_precip', 'dest_rain', 'dest_snow', 'dest_weather_code', 'dest_wind', 
-                 'dest_wind_gusts', 'month']
+FEATURE_NAMES = ['day_of_week', 'op_carrier', 'origin', 'dest', 'crs_dep_time', 'crs_arr_time',
+                 'distance', 'origin_temperature_2m', 'origin_precipitation', 'origin_rain', 'origin_snowfall',
+                 'origin_weather_code', 'origin_wind_speed_10m', 'origin_wind_gusts_10m', 'dest_temperature_2m',
+                 'dest_precipitation', 'dest_rain', 'dest_snowfall', 'dest_weather_code', 'dest_wind_speed_10m',
+                 'dest_wind_gusts_10m', 'month']
 
 # Integer categoricals (came from numeric columns in training)
 INT_CATEGORICALS = ["month", "day_of_week", "origin_weather_code", "dest_weather_code"]
@@ -164,8 +158,7 @@ model.load_model("model.json")
 st.title("Will your flight be delayed? ✈️")
 
 # Airport list
-airports = ['LAX', 'ATL', 'STT', 'GSO', 'BTV', 'DLG', 'WRG', 'TTN', 'LAF', 'HNL', 'ECP', 'ANC', 'YUM', 'SJT', 'PIR', 'SFO', 'DSM', 'MYR', 'PIT', 'PGD', 'ABQ', 'JNU', 'VPS', 'KOA', 'PSP', 'AEX', 'ISP', 'RAP', 'ALO', 'DLH', 'ABI', 'GFK', 'BET', 'PVU', 'ACT', 'SWF', 'VEL', 'HIB', 'ADQ', 'IMT', 'FLO', 'PBI', 'JAX', 'SBN', 'GGG', 'KTN', 'LBE', 'PHF', 'PHX', 'BWI', 'SNA', 'GPT', 'SGU', 'PWM', 'ORH', 'PSE', 'GUM', 'DVL', 'PIB', 'JST', 'SAV', 'ELP', 'AGS', 'LIH', 'SHV', 'ICT', 'MLI', 'CPR', 'IAG', 'ABE', 'CDC', 'ADK', 'PDX', 'MDT', 'CRP', 'SYR', 'STX', 'ESC', 'AMA', 'TWF', 'COD', 'STS', 'TPA', 'EUG', 'MTJ', 'RNO', 'MFE', 'HDN', 'BZN', 'GRK', 'OAJ', 'EWN', 'PPG', 'BRD', 'ALB', 'MOT', 'GSP', 'TLH', 'SIT', 'SPS', 'HYA', 'ATY', 'RDU', 'RSW', 'CVG', 'BTM', 'SJU', 'HHH', 'PAE', 'CRW', 'PIA', 'HGR', 'CYS', 'IND', 'GRI', 'SBP', 'ABR', 'GCK', 'PUB', 'FSM', 'DAL', 'STL', 'DEN', 'LIT', 'FLL', 'CHS', 'MHT', 'AVP', 'MQT', 'SHR', 'PRC', 'RFD', 'MGW', 'ALW', 'PGV', 'BNA', 'PBG', 'BRO', 'BTR', 'FAY', 'GTR', 'MLU', 'DHN', 'RHI', 'TYR', 'DIK', 'FMN', 'GUF', 'DCA', 'SMF', 'MSY', 'IAH', 'HLN', 'AZA', 'LCK', 'AZO', 'SCK', 'TXK', 'PQI', 'LAS', 'RDD', 'OGG', 'MAF', 'TYS', 'OMA', 'GJT', 'WYS', 'MCW', 'DEC', 'CWA', 'CLE', 'LAN', 'PIH', 'CLL', 'BIL', 'SUN', 'HRL', 'LBB', 'FOD', 'SUX', 'SBA', 'SJC', 'MSP', 'LGB', 'HYS', 'SGF', 'BIS', 'INL', 'ABY', 'TUL', 'SDF', 'ORF', 'OTZ', 'XNA', 'MEI', 'CKB', 'RKS', 'SEA', 'FWA', 'EGE', 'PSC', 'LSE', 'CMI', 'EYW', 'SFB', 'LAW', 'YKM', 'ONT', 'HSV', 'MOB', 'COU', 'MBS', 'LRD', 'BFF', 'APN', 'ROW', 'LBF', 'MVY', 'EKO', 'BHM', 'BJI', 'BGM', 'BDL', 'CIU', 'GRR', 'HPN', 'TVC', 'RST', 'LFT', 'CSG', 'BRW', 'EAU', 'PHL', 'CID', 'IDA', 'LAR', 'BUR', 'BOS', 'DRO', 'RDM', 'ATW', 'DRT', 'BQK', 'MRY', 'GUC', 'GTF', 'SLN', 'CDV', 'DFW', 'FAI', 'MLB', 'SCC', 'MGM', 'PSG', 'STC', 'EAR', 'HTS', 'OAK', 'OKC', 'CHA', 'YAK', 'BLV', 'JFK', 'SAN', 'CLT', 'MEM', 'DTW', 'SAF', 'ACY', 'TRI', 'PLN', 'BIH', 'ORD', 'RIC', 'PNS', 'SRQ', 'JLN', 'MCI', 'BLI', 'EVV', 'ROC', 'DAB', 'FSD', 'AKN', 'ACV', 'LCH', 'GST', 'AUS', 'FAR', 'CMX', 'ROA', 'HOB', 'GCC', 'CNY', 'PUW', 'HOU', 'MIA', 'ASE', 'MKE', 'PVD', 'IAD', 'CHO', 'BGR', 'FNT', 'SCE', 'ITH', 'SPN', 'USA', 'SWO', 'ITO', 'LEX', 'BFL', 'VCT', 'LNK', 'OTH', 'MFR', 'GEG', 'MHK', 'GNV', 'GRB', 'TOL', 'PAH', 'EWR', 'SAT', 'BQN', 'AVL', 'CAE', 'DAY', 'MSO', 'CLD', 'LWS', 'LGA', 'COS', 'FLG', 'BPT', 'RIW', 'LBL', 'ERI', 'CMH', 'MDW', 'FAT', 'CAK', 'FCA', 'OME', 'ACK', 'MCO', 'ILM', 'VLD', 'JMS', 'XWA', 'ELM', 'EAT', 'SLC', 'JAN', 'TUS', 'BMI', 'PIE', 'BOI', 'SPI', 'BUF', 'MSN', 'JAC', 'PSM', 'DDC', 'SMX', 'OWB']
-airport_list = sorted(set(airports))
+airport_list = sorted(AIRPORT_COORDS["airport"].tolist())
 # -------- Departure --------
 st.header("Departure")
 
@@ -173,7 +166,7 @@ st.header("Departure")
 dep_date = st.date_input("Departure Date", datetime.date.today())
 
 # Departure Time
-dep_time = st.time_input("Departure Time")
+dep_time = st.time_input("Departure Time (24 Hr Time)")
 
 # Depature Airport
 dep_query = st.text_input("Type Departure Airport (e.g. LAX, JFK):")
@@ -201,7 +194,7 @@ carrier = st.selectbox("Origin Carrier", carriers)
 st.header("Destination")
 
 # Destination Time
-dest_time = st.time_input("Destination Time")
+dest_time = st.time_input("Destination Time (24 Hr Time)")
 
 # Destination Airport
 dest_query = st.text_input("Type Destination Airport (e.g. LAX, JFK):")
@@ -287,7 +280,7 @@ if st.button("Get Estimated Time"):
       st.metric("Precipitation", f"{dest_precipitation:.2f} mm")
       st.metric("Wind Speed", f"{dest_wind_speed:.2f} km/h")
 
-# ========================== THE REAL SHIT ===============================
+# ========================== DATA PROCESSING AND PREDICTION ===============================
 
   data = {
       "day_of_week": day_of_week(dep_date),
@@ -297,23 +290,23 @@ if st.button("Get Estimated Time"):
       "crs_dep_time": time_to_int(dep_time),
       "crs_arr_time": time_to_int(dest_time),
       "distance": airports_distance,
-      "origin_temp": dep_temp,
-      "origin_precip": dep_precipitation,
+      "origin_temperature_2m": dep_temp,
+      "origin_precipitation": dep_precipitation,
       "origin_rain": dep_rain,
-      "origin_snow": dep_snow,
+      "origin_snowfall": dep_snow,
       "origin_weather_code": dep_weather_code,
-      "origin_wind": dep_wind_speed,
-      "origin_wind_gusts": dep_wind_gusts,
-      "dest_temp": dest_temp,
-      "dest_precip": dest_precipitation,
+      "origin_wind_speed_10m": dep_wind_speed,
+      "origin_wind_gusts_10m": dep_wind_gusts,
+      "dest_temperature_2m": dest_temp,
+      "dest_precipitation": dest_precipitation,
       "dest_rain": dest_rain,
-      "dest_snow": dest_snow,
+      "dest_snowfall": dest_snow,
       "dest_weather_code": dest_weather_code,
-      "dest_wind": dest_wind_speed,
-      "dest_wind_gusts": dest_wind_gusts,
+      "dest_wind_speed_10m": dest_wind_speed,
+      "dest_wind_gusts_10m": dest_wind_gusts,
       "month": month(dep_date)
   }
-  
+
   input_df = preprocess_input(data)
 
   dmat = xgboost.DMatrix(input_df, enable_categorical=True)
