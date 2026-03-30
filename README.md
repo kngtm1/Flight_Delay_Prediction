@@ -20,8 +20,12 @@ A model.json file has been provided as a convenient measure of loading the pre-t
 - newgrp docker
 
 ## Clone and build
-- git clone https://github.com/kngtm1/Flight_Delay_Prediction.git
-- cd Flight_Delay_Prediction/docker
+- git clone --no-checkout https://github.com/kngtm1/Flight_Delay_Prediction.git
+- cd Flight_Delay_Prediction
+- git sparse-checkout init --cone
+- git sparse-checkout set docker
+- git checkout
+- cd docker
 - docker build -t flight-delay .
 - docker run -p 8501:8501 flight-delay
 
